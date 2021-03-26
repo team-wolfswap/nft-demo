@@ -7,7 +7,6 @@ import {
   Column,
   ImageContainer,
   Title,
-  Description,
   Name,
   Series,
   ContentRow,
@@ -23,26 +22,27 @@ type Props = {
   children: ReactNode;
   name: string;
   seriesNumber: string;
-  details: string;
   image: string;
   sales?: Sale[];
   error?: string;
-  serial_number: string;
+  serial_number?: string;
   max_supply: string;
+  id: string;
+  type: string;
 };
 
 const DetailsLayout = ({
   children,
   name,
   seriesNumber,
-  details,
   image,
   sales,
   error,
   serial_number,
   max_supply,
+  id,
+  type,
 }: Props): JSX.Element => {
-  const [detailsActive, setDetailsActive] = useState(true);
   const [salesTableActive, setSalesTableActive] = useState(true);
   const [width, setWidth] = useState(0);
 
@@ -76,7 +76,10 @@ const DetailsLayout = ({
             <Name>{name}</Name>
             <Series>Series #{seriesNumber}</Series>
             <Serial>
-              Serial number #{serial_number}/{max_supply}
+              {serial_number
+                ? `Serial number #${serial_number}/`
+                : `Template number #${id}/`}
+              {max_supply}
             </Serial>
             <Divider />
             {children}
@@ -101,22 +104,6 @@ const DetailsLayout = ({
           {children}
         </Column>
       )}
-      <ContentRow>
-        <Title>Collectible Details</Title>
-        <ArrowContainer
-          isActive={detailsActive}
-          onClick={() => setDetailsActive(!detailsActive)}>
-          <Image
-            priority
-            layout="fixed"
-            width={24}
-            height={24}
-            src="/arrow.svg"
-            alt="Dropdown Arrow"
-          />
-        </ArrowContainer>
-      </ContentRow>
-      {detailsActive ? <Description>{details}</Description> : ''}
       {sales ? (
         <>
           <ContentRow>
@@ -135,7 +122,12 @@ const DetailsLayout = ({
             </ArrowContainer>
           </ContentRow>
           <ToggleContainer active={salesTableActive}>
-            <SalesHistoryTable tableData={sales} error={error} />
+            <SalesHistoryTable
+              tableData={sales}
+              error={error}
+              id={id}
+              type={type}
+            />
           </ToggleContainer>
         </>
       ) : (

@@ -1,7 +1,7 @@
-import { QueryParams } from '../utils/node-fetch';
 import dayjs from 'dayjs';
 import timezone from 'dayjs/plugin/timezone';
 import utc from 'dayjs/plugin/utc'; // dependent on utc plugin
+import { QueryParams, SHORTENED_TOKEN_PRECISION } from './constants';
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
@@ -39,21 +39,44 @@ export const parseTimestamp = (timestamp: string): string => {
 
 export const addPrecisionDecimal = (
   number: string,
-  precision: number
+  precision: number,
+  noCommas?: boolean
 ): string => {
-  if (number && number.includes('.')) return number;
+  if (number && number.includes('.')) return formatThousands(number);
   if (number && number.length > precision) {
     const insertDecimalAtIndex = number.length - precision;
-    return (
+    const numberString =
       number.slice(0, insertDecimalAtIndex) +
       '.' +
-      number.slice(insertDecimalAtIndex)
-    );
+      number.slice(insertDecimalAtIndex);
+    if (noCommas) {
+      return numberString;
+    }
+    return formatThousands(parseFloat(numberString).toString());
   }
 
   let prependZeros = '';
   for (let i = 0; i < precision - number.length; i++) {
     prependZeros += '0';
   }
-  return `0.${prependZeros + number}`;
+  const numberString = `0.${prependZeros + number}`;
+  if (noCommas) {
+    return numberString;
+  }
+  return formatThousands(parseFloat(numberString).toString());
+};
+
+export const formatPrice = (priceString: string): string => {
+  const [price, currency] = priceString.split(' ');
+  const amount = formatThousands(
+    parseFloat(price.replace(',', '')).toFixed(SHORTENED_TOKEN_PRECISION)
+  );
+  return `${amount} ${currency}`;
+};
+
+const formatThousands = (numberString: string): string => {
+  const [integers, decimals] = numberString.split('.');
+  let salePrice = parseFloat(integers.replace(',', '')).toLocaleString();
+  salePrice = decimals ? salePrice + '.' + decimals : salePrice;
+  return salePrice;
 };

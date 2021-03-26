@@ -1,31 +1,36 @@
 import { useRouter } from 'next/router';
+import { useState, useEffect } from 'react';
 import DetailsLayout from '../components/DetailsLayout';
 import ErrorComponent from '../components/Error';
-import { getTemplateDetail, Template } from '../services/templates';
-import {
-  getSaleAssetsByTemplateId,
-  SaleAsset,
-  getSalesHistoryForTemplate,
-  Sale,
-} from '../services/sales';
+import { getTemplateDetails, Template } from '../services/templates';
+import { getSalesHistoryForTemplate, Sale } from '../services/sales';
 import PageLayout from '../components/PageLayout';
 import BuyAssetForm from '../components/BuyAssetForm';
+import { DEFAULT_COLLECTION } from '../utils/constants';
+import LoadingPage from '../components/LoadingPage';
 
-type Props = {
-  template: Template;
-  allSalesForTemplate: SaleAsset[];
-  error: string;
-  salesHistory: Sale[];
+const emptyTemplateDetails = {
+  lowestPrice: '',
+  highestPrice: '',
+  max_supply: '',
+  immutable_data: {
+    image: '',
+    name: '',
+    series: 0,
+  },
 };
 
-const MarketplaceTemplateDetail = ({
-  template,
-  error,
-  allSalesForTemplate,
-  salesHistory,
-}: Props): JSX.Element => {
-  const router = useRouter();
+type Query = {
+  [query: string]: string;
+};
 
+const MarketplaceTemplateDetail = (): JSX.Element => {
+  const router = useRouter();
+  const { templateId } = router.query as Query;
+  const [sales, setSales] = useState<Sale[]>([]);
+  const [template, setTemplate] = useState<Template>(emptyTemplateDetails);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string>('');
   const {
     lowestPrice,
     highestPrice,
@@ -33,6 +38,25 @@ const MarketplaceTemplateDetail = ({
     immutable_data: { image, series, name },
     template_id,
   } = template;
+
+  useEffect(() => {
+    if (templateId) {
+      try {
+        (async () => {
+          const templateDetails = await getTemplateDetails(
+            DEFAULT_COLLECTION,
+            templateId
+          );
+          const sales = await getSalesHistoryForTemplate(templateId);
+          setTemplate(templateDetails);
+          setSales(sales);
+          setIsLoading(false);
+        })();
+      } catch (e) {
+        setError(e.message);
+      }
+    }
+  }, [templateId]);
 
   const getContent = () => {
     if (error) {
@@ -45,75 +69,31 @@ const MarketplaceTemplateDetail = ({
       );
     }
 
+    if (isLoading) {
+      return <LoadingPage />;
+    }
+
     return (
       <DetailsLayout
         name={name}
         seriesNumber={series.toString()}
-        details="Item details"
-        sales={salesHistory}
+        sales={sales}
         error={error}
         image={image as string}
-        serial_number={template_id}
-        max_supply={max_supply}>
+        max_supply={max_supply}
+        id={template_id}
+        type="Template">
         <BuyAssetForm
+          templateId={template_id}
           lowestPrice={lowestPrice}
           highestPrice={highestPrice}
           maxSupply={max_supply}
-          allSalesForTemplate={allSalesForTemplate}
         />
       </DetailsLayout>
     );
   };
 
   return <PageLayout title={`${name} Details`}>{getContent()}</PageLayout>;
-};
-
-type GetServerSidePropsContext = {
-  params: {
-    templateId: string;
-  };
-};
-
-export const getServerSideProps = async ({
-  params: { templateId },
-}: GetServerSidePropsContext): Promise<{ props: Props }> => {
-  const defaultCollectionType = 'monsters';
-  try {
-    const template = (await getTemplateDetail(
-      defaultCollectionType,
-      templateId
-    )) as Template;
-
-    const allSalesForTemplate = await getSaleAssetsByTemplateId(templateId);
-    const salesHistory = await getSalesHistoryForTemplate(templateId);
-
-    return {
-      props: {
-        template: template,
-        allSalesForTemplate: allSalesForTemplate,
-        salesHistory: salesHistory,
-        error: '',
-      },
-    };
-  } catch (e) {
-    return {
-      props: {
-        template: {
-          lowestPrice: '',
-          highestPrice: '',
-          max_supply: '',
-          immutable_data: {
-            image: '',
-            name: '',
-            series: 0,
-          },
-        },
-        allSalesForTemplate: [],
-        error: e.message,
-        salesHistory: [],
-      },
-    };
-  }
 };
 
 export default MarketplaceTemplateDetail;

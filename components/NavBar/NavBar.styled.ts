@@ -7,6 +7,14 @@ type DropdownProps = {
   isOpen: boolean;
 };
 
+type DropdownLinkProps = {
+  red?: boolean;
+};
+
+type NavLinkProps = {
+  isActive: boolean;
+};
+
 export const Background = styled.section`
   width: 100%;
   background: white;
@@ -23,8 +31,32 @@ export const Nav = styled(MaxWidth).attrs({ as: 'nav' })`
   position: relative;
 `;
 
+export const Section = styled.section`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+`;
+
+export const UserMenuButton = styled.button`
+  border-radius: 30px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  border: 1px solid #dde4ee;
+  outline: none;
+  background: none;
+  padding: 0;
+`;
+
+export const UserMenuText = styled.span`
+  font-family: GilroyMedium;
+  color: #0e103c;
+  font-size: 14px;
+  margin: 8px 8px 8px 16px;
+`;
+
 export const AvatarContainer = styled(FadeInImageContainer)`
-  margin: 16px 0;
   width: 40px;
   height: 40px;
   position: relative;
@@ -59,9 +91,11 @@ export const DropdownList = styled.section<DropdownProps>`
   z-index: 1;
 
   ${breakpoint.tablet`
-    min-width: 0;
-    border-radius: 0;
-    box-shadow: 0;
+    display: ${({ isOpen }) => (isOpen ? 'flex' : 'none')};
+    flex-direction: column;
+    position: absolute;
+    right: 0;
+    z-index: 1;
     top: 65px;
     width: 100%;
 
@@ -69,12 +103,12 @@ export const DropdownList = styled.section<DropdownProps>`
       content: '';
       background: #ffffff;
       width: 100%;
-      height: 410px;
+      height: 350px;
       position: fixed;
       top: 0;
       left: 0;
       z-index: -1;
-    }    
+    }
   `}
 `;
 
@@ -139,10 +173,10 @@ export const Balance = styled(Name)`
   `}
 `;
 
-export const NavLink = styled.a`
+export const DropdownLink = styled.a<DropdownLinkProps>`
   font-family: GilroyMedium;
   font-weight: 500;
-  color: #0e103c;
+  color: ${({ red }) => (red ? '#fb849a' : '#0e103c')};
   font-size: 16px;
   line-height: 24px;
   cursor: pointer;
@@ -155,7 +189,7 @@ export const NavLink = styled.a`
   }
 
   :hover {
-    color: #7578b5;
+    color: ${({ red }) => (red ? '#ff002e' : '#7578b5')};
   }
 
   ${breakpoint.tablet`
@@ -166,6 +200,23 @@ export const NavLink = styled.a`
       border: none;
     }
   `}
+`;
+
+export const DesktopOnlySection = styled.section`
+  ${breakpoint.tablet`
+    display: none;
+  `}
+`;
+
+export const DesktopNavLink = styled.a<NavLinkProps>`
+  font-family: GilroyMedium;
+  color: ${({ isActive }) => (isActive ? '#0e103c' : '#7578b5')};
+  font-weight: ${({ isActive }) => (isActive ? 600 : 500)};
+  border-bottom: 2px solid ${({ isActive }) => (isActive ? '#8a9ef5' : 'white')};
+  cursor: pointer;
+  margin-right: 40px;
+  font-size: 16px;
+  padding: 20px 0;
 `;
 
 export const MobileIcon = styled.div`

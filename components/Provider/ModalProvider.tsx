@@ -3,8 +3,8 @@ import { useScrollLock } from '../../hooks';
 
 export const MODAL_TYPES = {
   HIDDEN: 'HIDDEN',
-  DEPOSIT: 'DEPOSIT',
   WITHDRAW: 'WITHDRAW',
+  CLAIM: 'CLAIM',
 };
 
 type Props = {

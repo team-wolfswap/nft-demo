@@ -1,9 +1,10 @@
 import styled from 'styled-components';
 import { MaxWidth } from '../../styles/MaxWidth.styled';
 import { breakpoint } from '../../styles/Breakpoints';
+import { StyledButton } from '../Button/Button.styled';
 
 export const Background = styled.div`
-  z-index: 2;
+  z-index: 3;
   position: fixed;
   top: 0;
   left: 0;
@@ -16,12 +17,15 @@ export const Background = styled.div`
     rgba(14, 16, 60, 0.6),
     rgba(14, 16, 60, 0.67)
   );
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
 `;
 
 export const ModalBox = styled(MaxWidth)`
   display: flex;
   flex-direction: column;
-  margin-top: 15vh;
+  margin-top: 232px;
   padding: 24px 24px 12px;
   border-radius: 8px;
   box-shadow: 0 8px 8px -4px rgba(0, 0, 0, 0.1), 0 0 4px 0 rgba(0, 0, 0, 0.08);
@@ -32,7 +36,7 @@ export const ModalBox = styled(MaxWidth)`
   }
 
   ${breakpoint.tablet`
-    margin-top: 7vh;
+    margin-top: 200px;
   `}
 `;
 
@@ -134,4 +138,16 @@ export const LinkButton = styled(StyledLink).attrs({ as: 'button' })`
   padding: 0;
   border: none;
   background: none;
+`;
+
+export const Row = styled.div`
+  display: flex;
+`;
+
+export const HalfButton = styled(StyledButton)`
+  flex: 1;
+`;
+
+export const Spacer = styled.div`
+  flex: 1;
 `;

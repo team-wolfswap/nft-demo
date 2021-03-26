@@ -1,5 +1,10 @@
 import { JsonRpc } from '@proton/js';
-import { EMPTY_BALANCE } from '../utils/constants';
+import { formatPrice } from '../utils';
+import {
+  TOKEN_SYMBOL,
+  TOKEN_CONTRACT,
+  EMPTY_BALANCE,
+} from '../utils/constants';
 
 class ProtonJs {
   rpc: JsonRpc;
@@ -35,7 +40,16 @@ class ProtonJs {
     });
   };
 
-  getProfileImage = async ({ account }): Promise<void> => {
+  getAccountBalance = async (account): Promise<string> => {
+    const balance = await this.rpc.get_currency_balance(
+      TOKEN_CONTRACT,
+      account,
+      TOKEN_SYMBOL
+    );
+    return formatPrice(balance[0]);
+  };
+
+  getProfileImage = async ({ account }): Promise<string> => {
     const { rows } = await this.rpc.get_table_rows({
       scope: 'eosio.proton',
       code: 'eosio.proton',
@@ -44,8 +58,8 @@ class ProtonJs {
       lower_bound: account,
       upper_bound: account,
     });
-    const { avatar } = rows[0];
-    return avatar;
+
+    return !rows.length ? '' : rows[0].avatar;
   };
 
   getAtomicMarketBalance = (chainAccount: string) => {

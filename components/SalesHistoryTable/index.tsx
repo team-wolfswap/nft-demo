@@ -1,23 +1,39 @@
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
 import TableHeaderRow from '../TableHeaderRow';
 import TableHeaderCell from '../TableHeaderCell';
 import TableRow from '../TableRow';
 import TableContentWrapper from '../TableContentWraper';
 import SalesHistoryTableCell from '../SalesHistoryTableCell';
+import PaginationButton from '../../components/PaginationButton';
 import { Sale } from '../../services/sales';
-import { addPrecisionDecimal, parseTimestamp, asyncForEach } from '../../utils';
+import { addPrecisionDecimal, parseTimestamp } from '../../utils';
 import { StyledTable } from './SalesHistoryTable.styled';
-import proton from '../../services/proton-rpc';
 import { useWindowSize } from '../../hooks';
+import { getFromApi } from '../../utils/browser-fetch';
+import { useAuthContext } from '../Provider';
+
+import {
+  getSalesHistoryForTemplate,
+  getSalesHistoryForAsset,
+} from '../../services/sales';
 
 type Props = {
   tableData: Sale[];
+  id: string;
+  type: string;
   error?: string;
 };
 
 type TableHeader = {
   title: string;
   id: string;
+};
+
+type GetSalesOptions = {
+  id: string;
+  page?: number;
+  type?: string;
 };
 
 const salesHistoryTableHeaders = [
@@ -36,9 +52,64 @@ const mobileSalesHistoryTableHeaders = [
   { title: 'TX', id: 'tx' },
 ];
 
-const SalesHistoryTable = ({ tableData, error }: Props): JSX.Element => {
+const getAvatars = async (
+  chainAccounts: string[]
+): Promise<{ [chainAccount: string]: string }> => {
+  try {
+    const queryString = chainAccounts
+      .map((account) => encodeURIComponent(account))
+      .join('&accounts=');
+
+    const res = await getFromApi<{ [account: string]: string }>(
+      `/api/profile?accounts=${queryString}`
+    );
+
+    if (!res.success) {
+      throw new Error((res.message as unknown) as string);
+    }
+
+    return res.message;
+  } catch (e) {
+    throw new Error(e);
+  }
+};
+
+const getMySalesHistory = async ({
+  id,
+  page,
+  type,
+}: GetSalesOptions): Promise<Sale[]> => {
+  try {
+    const pageParam = page ? page : 1;
+    const typeParam = type ? type : 'Template';
+    let result;
+    if (typeParam === 'Template') {
+      result = await getSalesHistoryForTemplate(id, pageParam);
+    } else {
+      result = await getSalesHistoryForAsset(id, pageParam);
+    }
+
+    return result;
+  } catch (e) {
+    throw new Error(e);
+  }
+};
+
+const SalesHistoryTable = ({
+  tableData,
+  id,
+  type,
+  error,
+}: Props): JSX.Element => {
+  const { currentUser } = useAuthContext();
+  const router = useRouter();
   const [avatars, setAvatars] = useState({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoadingNextPage, setIsLoadingNextPage] = useState<boolean>(true);
+  const [renderedData, setRenderedData] = useState<Sale[]>(tableData);
+  const [prefetchedData, setPrefetchedData] = useState<Sale[]>([]);
+  const [prefetchPageNumber, setPrefetchPageNumber] = useState<number>(2);
+  const [errorMessage, setErrorMessage] = useState<string>(error);
   const [tableHeaders, setTableHeaders] = useState<TableHeader[]>([]);
   const { isMobile } = useWindowSize();
 
@@ -52,27 +123,32 @@ const SalesHistoryTable = ({ tableData, error }: Props): JSX.Element => {
 
   useEffect(() => {
     (async () => {
-      const allAvatars = {};
-      await asyncForEach(tableData, async (sale: Sale) => {
-        const account = sale.buyer;
-        if (!avatars[account]) {
-          try {
-            const avatar = await proton.getProfileImage({
-              account,
-            });
-            allAvatars[account] = avatar;
-          } catch (e) {
-            allAvatars[account] = '';
-          }
+      try {
+        if (renderedData.length) {
+          const chainAccounts = renderedData.map(({ buyer }) => buyer);
+          const res = await getAvatars(chainAccounts);
+          setAvatars(res);
         }
-      });
-      setAvatars(allAvatars);
+        router.prefetch('/');
+        await prefetchNextPage();
+      } catch (e) {
+        setErrorMessage(e.message);
+      }
       setIsLoading(false);
     })();
-  }, [tableData]);
+  }, [renderedData]);
+
+  useEffect(() => {
+    if (currentUser) {
+      setAvatars({
+        ...avatars,
+        [currentUser.actor]: currentUser.avatar,
+      });
+    }
+  }, [currentUser]);
 
   const getTableContent = () => {
-    return tableData.map((sale) => {
+    return renderedData.map((sale) => {
       return (
         <TableRow key={sale.sale_id}>
           {tableHeaders.map(({ id }) => {
@@ -84,30 +160,63 @@ const SalesHistoryTable = ({ tableData, error }: Props): JSX.Element => {
     });
   };
 
+  const prefetchNextPage = async () => {
+    const prefetchedResult = await getMySalesHistory({
+      id,
+      page: prefetchPageNumber,
+      type,
+    });
+    setPrefetchedData(prefetchedResult as Sale[]);
+
+    if (!prefetchedResult.length) {
+      setPrefetchPageNumber(-1);
+    } else {
+      setPrefetchPageNumber(prefetchPageNumber + 1);
+    }
+
+    setIsLoadingNextPage(false);
+  };
+
+  const showNextPage = async () => {
+    const allFetchedData = renderedData.concat(prefetchedData);
+    setRenderedData(allFetchedData);
+    setIsLoadingNextPage(true);
+    await prefetchNextPage();
+  };
+
   return (
-    <StyledTable aria-label="sales-history-table" role="table">
-      <thead>
-        <TableHeaderRow>
-          {tableHeaders.map((header) => {
-            return (
-              <TableHeaderCell key={header.title}>
-                {header.title}
-              </TableHeaderCell>
-            );
-          })}
-        </TableHeaderRow>
-      </thead>
-      <tbody>
-        <TableContentWrapper
-          error={error ? 'An error has occurred' : null}
-          loading={isLoading}
-          noData={!tableData.length}
-          noDataMessage={'No Recent Sales'}
-          columns={tableHeaders.length}>
-          {getTableContent()}
-        </TableContentWrapper>
-      </tbody>
-    </StyledTable>
+    <>
+      <StyledTable aria-label="sales-history-table" role="table">
+        <thead>
+          <TableHeaderRow>
+            {tableHeaders.map((header) => {
+              return (
+                <TableHeaderCell key={header.title}>
+                  {header.title}
+                </TableHeaderCell>
+              );
+            })}
+          </TableHeaderRow>
+        </thead>
+        <tbody>
+          <TableContentWrapper
+            error={
+              errorMessage ? `An error has occurred: ${errorMessage}` : null
+            }
+            loading={isLoading}
+            noData={!renderedData.length}
+            noDataMessage={'No Recent Sales'}
+            columns={tableHeaders.length}>
+            {getTableContent()}
+          </TableContentWrapper>
+        </tbody>
+      </StyledTable>
+      <PaginationButton
+        onClick={showNextPage}
+        isLoading={isLoadingNextPage}
+        disabled={prefetchPageNumber === -1}
+      />
+    </>
   );
 };
 

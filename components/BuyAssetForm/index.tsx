@@ -1,49 +1,75 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, ChangeEvent } from 'react';
 import { useRouter } from 'next/router';
 import ProtonSDK from '../../services/proton';
-import { SaleAsset } from '../../services/sales';
+import { SaleAsset, getAllTemplateSales } from '../../services/sales';
 import Button from '../Button';
 import { General, Amount, Row, Divider } from '../../styles/details.styled';
-import { Error, DropdownMenu } from './BuyAssetForm.styled';
-import { useAuthContext, useModalContext, MODAL_TYPES } from '../Provider';
+import { ErrorMessage, DropdownMenu } from './BuyAssetForm.styled';
+import { useAuthContext } from '../Provider';
+import * as gtag from '../../utils/gtag';
 
 type Props = {
+  templateId: string;
   lowestPrice: string;
   highestPrice: string;
   maxSupply: string;
-  allSalesForTemplate: SaleAsset[];
 };
 
 const BuyAssetForm = ({
+  templateId,
   lowestPrice,
   highestPrice,
   maxSupply,
-  allSalesForTemplate,
 }: Props): JSX.Element => {
   const router = useRouter();
-  const { openModal } = useModalContext();
-  const { currentUser, currentUserBalance, login } = useAuthContext();
-  const [purchasingError, setPurchasingError] = useState('');
+  const {
+    updateCurrentUserBalance,
+    currentUser,
+    currentUserBalance,
+    login,
+  } = useAuthContext();
+  const [sales, setSales] = useState<SaleAsset[]>([]);
+  const [formattedPricesBySaleId, setFormattedPricesBySaleId] = useState<{
+    [templateMint: string]: string;
+  }>({});
+  const [rawPricesBySaleId, setRawPricesBySaleId] = useState<{
+    [templateMint: string]: string;
+  }>({});
+  const [purchasingError, setPurchasingError] = useState<string>('');
+  const [isBalanceInsufficient, setIsBalanceInsufficient] = useState<boolean>(
+    false
+  );
+  const [isLoadingPrices, setIsLoadingPrices] = useState<boolean>(true);
   const [saleId, setSaleId] = useState('');
-  const balanceAmount = parseFloat(currentUserBalance.split(' ')[0]);
-  const lowestAmount = lowestPrice
-    ? parseFloat(lowestPrice.split(' ')[0])
-    : undefined;
-  const isBalanceEmpty = balanceAmount === 0;
-  const isBalanceInsufficient = lowestAmount && lowestAmount > balanceAmount;
+  const balanceAmount = parseFloat(
+    currentUserBalance.split(' ')[0].replace(',', '')
+  );
+  const [rawPriceOfSale, setRawPriceOfSale] = useState('');
 
   useEffect(() => {
     setPurchasingError('');
-    if (currentUser && (lowestPrice || highestPrice)) {
-      const balanceError =
-        isBalanceEmpty || isBalanceInsufficient
-          ? `Insufficient funds: this NFT is listed for ${lowestAmount.toFixed(
-              6
-            )} FOOBAR and your account balance is ${currentUserBalance}. Please deposit more funds to continue this transaction.`
-          : '';
-      setPurchasingError(balanceError);
-    }
-  }, [currentUserBalance]);
+    if (balanceAmount === 0) setIsBalanceInsufficient(true);
+  }, [currentUser, currentUserBalance]);
+
+  useEffect(() => {
+    (async () => {
+      setIsLoadingPrices(true);
+      const { formattedPrices, rawPrices, assets } = await getAllTemplateSales(
+        templateId
+      );
+      setSales(assets);
+      setFormattedPricesBySaleId(formattedPrices);
+      setRawPricesBySaleId(rawPrices);
+      setIsLoadingPrices(false);
+
+      assets.forEach((asset) => {
+        if (asset.salePrice === lowestPrice) {
+          setSaleId(asset.saleId);
+          setRawPriceOfSale(rawPrices[asset.saleId]);
+        }
+      });
+    })();
+  }, [templateId]);
 
   const buyAsset = async () => {
     if (!saleId) {
@@ -52,12 +78,23 @@ const BuyAssetForm = ({
     }
 
     try {
+      if (!currentUser) {
+        setPurchasingError('Must be logged in');
+        return;
+      }
+
+      const chainAccount = currentUser.actor;
       const purchaseResult = await ProtonSDK.purchaseSale({
-        buyer: currentUser ? currentUser.actor : '',
+        buyer: chainAccount,
+        amount: rawPriceOfSale,
         sale_id: saleId,
       });
+
       if (purchaseResult.success) {
-        router.replace(router.asPath);
+        updateCurrentUserBalance(chainAccount);
+        setTimeout(() => {
+          router.push(`/my-nfts/${chainAccount}`);
+        }, 1000);
       } else {
         throw purchaseResult.error;
       }
@@ -66,19 +103,40 @@ const BuyAssetForm = ({
     }
   };
 
-  const openDepositModal = () => openModal(MODAL_TYPES.DEPOSIT);
-
   const handleButtonClick = currentUser
-    ? isBalanceEmpty || isBalanceInsufficient
-      ? openDepositModal
+    ? isBalanceInsufficient
+      ? () => window.open('https://foobar.protonchain.com/')
       : buyAsset
     : login;
 
   const buttonText = currentUser
-    ? isBalanceEmpty || isBalanceInsufficient
-      ? 'Deposit funds to buy'
+    ? isBalanceInsufficient
+      ? 'Visit Foobar Faucet'
       : 'Buy'
     : 'Connect wallet to buy';
+
+  const handleDropdownSelect = (e: ChangeEvent<HTMLSelectElement>) => {
+    setPurchasingError('');
+    setIsBalanceInsufficient(false);
+
+    if (!currentUser) {
+      setPurchasingError('You must log in to purchase an asset.');
+      return;
+    }
+
+    const id = e.target.value;
+    const priceString = formattedPricesBySaleId[id];
+    const amount = parseFloat(priceString.split(' ')[0].replace(',', ''));
+    if (amount > balanceAmount) {
+      setIsBalanceInsufficient(true);
+      setPurchasingError(
+        `Insufficient funds: this NFT is listed for ${priceString} and your account balance is ${currentUserBalance}. Please visit Foobar Faucet for more funds to continue this transaction.`
+      );
+    }
+
+    setRawPriceOfSale(rawPricesBySaleId[id]);
+    setSaleId(id);
+  };
 
   return (
     <section>
@@ -88,7 +146,7 @@ const BuyAssetForm = ({
       </Row>
       <Row>
         <p>{maxSupply}</p>
-        <p>{allSalesForTemplate.length}</p>
+        <p>{sales.length}</p>
       </Row>
       <Divider />
       <General>Lowest Price</General>
@@ -97,25 +155,24 @@ const BuyAssetForm = ({
       <Amount>{highestPrice ? highestPrice : 'None'}</Amount>
       <General>Serial number</General>
       <DropdownMenu
+        isLoading={isLoadingPrices}
         name="Available Assets For Sale"
         value={saleId}
-        onChange={(e) => setSaleId(e.target.value)}>
-        <option key="blank" value="">
+        onChange={handleDropdownSelect}>
+        <option key="blank" value="" disabled>
           - - Select a serial number - -
         </option>
-        {allSalesForTemplate.length > 0 &&
-          allSalesForTemplate.map((sale) => {
-            return (
-              <option key={sale.saleId} value={sale.saleId}>
-                #{sale.templateMint} - {sale.salePrice} {sale.saleToken}
-              </option>
-            );
-          })}
+        {sales.length > 0 &&
+          sales.map(({ saleId, templateMint, salePrice }) => (
+            <option key={templateMint} value={saleId}>
+              #{templateMint} - {salePrice}
+            </option>
+          ))}
       </DropdownMenu>
       <Button fullWidth filled rounded onClick={handleButtonClick}>
         {buttonText}
       </Button>
-      {purchasingError ? <Error>{purchasingError}</Error> : null}
+      {purchasingError ? <ErrorMessage>{purchasingError}</ErrorMessage> : null}
     </section>
   );
 };

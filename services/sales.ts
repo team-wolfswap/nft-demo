@@ -1,7 +1,7 @@
-import NodeFetch from '../utils/node-fetch';
 import { Asset } from './assets';
 import { Collection } from './templates';
-import { addPrecisionDecimal } from '../utils';
+import { getFromApi } from '../utils/browser-fetch';
+import { toQueryString, addPrecisionDecimal } from '../utils';
 
 type Price = {
   token_contract: string;
@@ -14,9 +14,7 @@ type Price = {
 export type SaleAsset = {
   saleId: string;
   templateMint: string;
-  owner: string;
   salePrice: string;
-  saleToken?: string;
 };
 
 export type Sale = {
@@ -43,31 +41,48 @@ export type Sale = {
   asset_serial: string;
 };
 
-export const salesApiService = new NodeFetch<Sale>('/atomicmarket/v1/sales');
-
-export const templateSalesApiService = new NodeFetch<Sale>(
-  '/atomicmarket/v1/sales/templates'
-);
+export type SaleAssetRecord = {
+  rawPrices: {
+    [templateMint: string]: string;
+  };
+  formattedPrices: {
+    [templateMint: string]: string;
+  };
+  assets: SaleAsset[];
+};
 
 /**
  * Get the fulfilled sales for a specific templates (sales that were successful)
  * Mostly used in viewing sales history of a specific template
- * @param  {string} templateId   The template id of the history you want to look up
- * @return {Sales[]}             Returns an array of Sales for that specific template id
+ * @param {string} templateId The template id of the history you want to look up
+ * @param {number} page       The page to look up from atomicassets api if number of assets returned is greater than given limit (default 100)
+ * @return {Sales[]}          Returns an array of Sales for that specific template id
  */
 
 export const getSalesHistoryForTemplate = async (
-  templateId: string
+  templateId: string,
+  page?: number
 ): Promise<Sale[]> => {
   try {
-    const latestSales = await salesApiService.getAll({
+    const pageParam = page ? page : 1;
+    const queryObject = {
       state: '3', // Valid sale, Sale was bought
       template_id: templateId,
       sort: 'updated',
       order: 'desc',
-    });
-    if (!latestSales.success) throw new Error(latestSales.message);
-    return latestSales.data;
+      page: pageParam,
+      limit: 10,
+    };
+    const queryString = toQueryString(queryObject);
+    const latestSalesRes = await getFromApi<Sale[]>(
+      `https://proton.api.atomicassets.io/atomicmarket/v1/sales?${queryString}`
+    );
+
+    if (!latestSalesRes.success) {
+      throw new Error((latestSalesRes.message as unknown) as string);
+    }
+
+    return latestSalesRes.data;
   } catch (e) {
     throw new Error(e);
   }
@@ -76,47 +91,118 @@ export const getSalesHistoryForTemplate = async (
 /**
  * Get the fulfilled sales for a specific asset (sales that were successful)
  * Mostly used in viewing sales history of a specific asset
- * @param  {string} assetId   The asset id of the history you want to look up
- * @return {Sales[]}          Returns an array of Sales for that specific template id
+ * @param {string} assetId The asset id of the history you want to look up
+ * @param {number} page    The page to look up from atomicassets api if number of assets returned is greater than given limit (default 100)
+ * @return {Sales[]}       Returns an array of Sales for that specific template id
  */
 
 export const getSalesHistoryForAsset = async (
-  assetId: string
+  assetId: string,
+  page?: number
 ): Promise<Sale[]> => {
   try {
-    const latestSales = await salesApiService.getAll({
+    const pageParam = page ? page : 1;
+    const queryObject = {
       state: '3', // Valid sale, Sale was bought
       asset_id: assetId,
       sort: 'updated',
       order: 'desc',
-    });
-    if (!latestSales.success) throw new Error(latestSales.message);
-    return latestSales.data;
+      page: pageParam,
+      limit: 10,
+    };
+    const queryString = toQueryString(queryObject);
+    const latestSalesRes = await getFromApi<Sale[]>(
+      `https://proton.api.atomicassets.io/atomicmarket/v1/sales?${queryString}`
+    );
+
+    if (!latestSalesRes.success) {
+      throw new Error((latestSalesRes.message as unknown) as string);
+    }
+
+    return latestSalesRes.data;
   } catch (e) {
     throw new Error(e);
   }
 };
 
 /**
- * Get the assets for sale for a specific templates (sales that are listed for sale but not sold).
- * Mostly used in viewing sales history of a specific template.
- * @param  {string} templateId   The template id of the sale assets you want to look up.
- * @return {SaleAsset[]}         Returns an array of SaleAssets for that specific template id with an additional flag: 'salePrice'.
+ * Get the unfulfilled sale for a specific asset
+ * @param assetId Id of the asset listed for sale
+ * @param seller  Owner of the asset listed for sale
+ * @returns {SaleAsset[]}
  */
 
-export const getSaleAssetsByTemplateId = async (
-  templateId: string
-): Promise<SaleAsset[]> => {
+export const getAssetSale = async (
+  assetId: string,
+  seller?: string
+): Promise<Sale[]> => {
   try {
-    const sales = await salesApiService.getAll({
-      template_id: templateId,
-      state: '1', // LISTED - Assets for sale
-      sort: 'price',
-      order: 'asc',
-    });
+    const queryObject = {
+      asset_id: assetId,
+      state: '1',
+      seller: seller ? seller : '',
+    };
 
-    let saleAssets: SaleAsset[] = [];
-    for (const sale of sales.data) {
+    const queryString = toQueryString(queryObject);
+
+    const result = await getFromApi<Sale[]>(
+      `https://proton.api.atomicassets.io/atomicmarket/v1/sales?${queryString}`
+    );
+
+    if (!result.success) {
+      throw new Error((result.message as unknown) as string);
+    }
+
+    return result.data;
+  } catch (e) {
+    throw new Error(e);
+  }
+};
+
+/**
+ * Get the unfulfilled sales for a specific template
+ * Mostly used in purchasing an asset of a specific template
+ * @param  {string} templateId     The template id of an asset you want to purchase
+ * @return {SaleAssetRecord}       Returns a SaleAssetRecord including a record of prices by sale ID and an array of assets for sale
+ */
+
+export const getAllTemplateSales = async (
+  templateId: string
+): Promise<SaleAssetRecord> => {
+  try {
+    let sales = [];
+    let hasResults = true;
+    let page = 1;
+
+    while (hasResults) {
+      const queryObject = {
+        state: '1',
+        sort: 'template_mint',
+        order: 'asc',
+        template_id: templateId,
+        page,
+      };
+      const queryParams = toQueryString(queryObject);
+      const result = await getFromApi<SaleAsset[]>(
+        `https://proton.api.atomicassets.io/atomicmarket/v1/sales?${queryParams}`
+      );
+
+      if (!result.success) {
+        throw new Error((result.message as unknown) as string);
+      }
+
+      if (result.data.length === 0) {
+        hasResults = false;
+      }
+
+      sales = sales.concat(result.data);
+      page += 1;
+    }
+
+    let saleAssets = [];
+    const pricesBySaleId = {};
+    const pricesBySaleIdRaw = {};
+    for (const sale of sales) {
       const {
         assets,
         listing_price,
@@ -125,26 +211,91 @@ export const getSaleAssetsByTemplateId = async (
         price: { token_precision },
       } = sale;
 
-      const formattedAssets = assets.map(({ owner, template_mint }) => ({
+      const salePrice = `${addPrecisionDecimal(
+        listing_price,
+        token_precision
+      )} ${listing_symbol}`;
+
+      const rawListingPrice = `${addPrecisionDecimal(
+        listing_price,
+        token_precision,
+        true
+      )} ${listing_symbol}`;
+      pricesBySaleId[sale_id] = salePrice;
+      pricesBySaleIdRaw[sale_id] = rawListingPrice;
+
+      const formattedAssets = assets.map(({ template_mint }) => ({
         saleId: sale_id,
         templateMint: template_mint,
-        owner,
-        salePrice: `${addPrecisionDecimal(listing_price, token_precision)}`,
-        saleToken: listing_symbol,
+        salePrice,
       }));
+
       saleAssets = saleAssets.concat(formattedAssets);
     }
-    const sortedSaleAssets = saleAssets.sort((a, b) => {
-      if (a.salePrice < b.salePrice) {
-        return 1;
-      }
-      if (a.salePrice > b.salePrice) {
-        return -1;
-      }
-      return 0;
-    });
 
-    return sortedSaleAssets;
+    return {
+      formattedPrices: pricesBySaleId,
+      rawPrices: pricesBySaleIdRaw,
+      assets: saleAssets,
+    };
+  } catch (e) {
+    throw new Error(e);
+  }
+};
+
+export const getHighestPriceAsset = async (
+  collection: string,
+  templateId: string
+): Promise<Sale[]> => {
+  try {
+    const queryObject = {
+      collection_name: collection,
+      template_id: templateId,
+      sort: 'price',
+      order: 'desc',
+      state: '1', // assets listed for sale
+      limit: '1',
+    };
+    const queryString = toQueryString(queryObject);
+
+    const saleRes = await getFromApi<Sale[]>(
+      `https://proton.api.atomicassets.io/atomicmarket/v1/sales?${queryString}`
+    );
+
+    if (!saleRes.success) {
+      throw new Error((saleRes.message as unknown) as string);
+    }
+
+    return saleRes.data;
+  } catch (e) {
+    throw new Error(e);
+  }
+};
+
+export const getLowestPriceAsset = async (
+  collection: string,
+  templateId: string
+): Promise<Sale[]> => {
+  try {
+    const queryObject = {
+      collection_name: collection,
+      template_id: templateId,
+      sort: 'price',
+      order: 'asc',
+      state: '1', // assets listed for sale
+      limit: '1',
+    };
+    const queryString = toQueryString(queryObject);
+
+    const saleRes = await getFromApi<Sale[]>(
+      `https://proton.api.atomicassets.io/atomicmarket/v1/sales?${queryString}`
+    );
+
+    if (!saleRes.success) {
+      throw new Error((saleRes.message as unknown) as string);
+    }
+
+    return saleRes.data;
   } catch (e) {
     throw new Error(e);
   }

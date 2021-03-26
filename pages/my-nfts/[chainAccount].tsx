@@ -5,13 +5,13 @@ import PaginationButton from '../../components/PaginationButton';
 import ErrorComponent from '../../components/Error';
 import Grid, { GRID_TYPE } from '../../components/Grid';
 import { useAuthContext } from '../../components/Provider';
-import { getUserAssets, Asset } from '../../services/assets';
-import { getFromApi, BrowserResponse } from '../../utils/browser-fetch';
+import { Asset } from '../../services/assets';
 import { Title } from '../../styles/Title.styled';
+import { getUserAssets } from '../../services/assets';
+import LoadingPage from '../../components/LoadingPage';
+import Banner from '../../components/Banner';
 
 type Props = {
-  assets: Asset[];
-  error: string;
   chainAccount: string;
 };
 
@@ -23,16 +23,10 @@ type GetMyAssetsOptions = {
 const getMyAssets = async ({
   chainAccount,
   page,
-}: GetMyAssetsOptions): Promise<BrowserResponse<Asset[]>> => {
+}: GetMyAssetsOptions): Promise<Asset[]> => {
   try {
     const pageParam = page ? page : 1;
-    const result = await getFromApi<Asset[]>(
-      `/api/my-assets?owner=${chainAccount}&page=${pageParam}`
-    );
-
-    if (!result.success) {
-      throw new Error((result.message as unknown) as string);
-    }
+    const result = await getUserAssets(chainAccount, pageParam);
 
     return result;
   } catch (e) {
@@ -40,23 +34,25 @@ const getMyAssets = async ({
   }
 };
 
-const Collection = ({ assets, error, chainAccount }: Props): JSX.Element => {
+const Collection = ({ chainAccount }: Props): JSX.Element => {
   const router = useRouter();
-  const { currentUser, login, authError } = useAuthContext();
-  const [renderedAssets, setRenderedAssets] = useState<Asset[]>(assets);
+  const { currentUser } = useAuthContext();
+  const [renderedAssets, setRenderedAssets] = useState<Asset[]>([]);
   const [prefetchedAssets, setPrefetchedAssets] = useState<Asset[]>([]);
   const [prefetchPageNumber, setPrefetchPageNumber] = useState<number>(2);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isLoadingNextPage, setIsLoadingNextPage] = useState<boolean>(true);
-  const [errorMessage, setErrorMessage] = useState<string>(error);
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [currentProfile, setCurrentProfile] = useState<string>('');
 
   const prefetchNextPage = async () => {
     const prefetchedResult = await getMyAssets({
       chainAccount,
       page: prefetchPageNumber,
     });
-    setPrefetchedAssets(prefetchedResult.message as Asset[]);
+    setPrefetchedAssets(prefetchedResult as Asset[]);
 
-    if (!prefetchedResult.message.length) {
+    if (!prefetchedResult.length) {
       setPrefetchPageNumber(-1);
     } else {
       setPrefetchPageNumber(prefetchPageNumber + 1);
@@ -76,47 +72,44 @@ const Collection = ({ assets, error, chainAccount }: Props): JSX.Element => {
     (async () => {
       try {
         router.prefetch('/');
+        const assets = await getMyAssets({ chainAccount, page: 1 });
+        setRenderedAssets(assets);
+        setIsLoading(false);
         await prefetchNextPage();
       } catch (e) {
         setErrorMessage(e.message);
       }
     })();
-  }, []);
+  }, [chainAccount]);
 
-  const connectWallet = () => {
-    login();
-    router.replace(router.asPath);
-  };
+  useEffect(() => {
+    if (currentUser) {
+      if (chainAccount !== currentUser.actor) {
+        setCurrentProfile(
+          `${chainAccount.charAt(0).toUpperCase()}${chainAccount.slice(1)}`
+        );
+      } else {
+        setCurrentProfile('');
+      }
+    } else if (chainAccount) {
+      setCurrentProfile(
+        `${chainAccount.charAt(0).toUpperCase()}${chainAccount.slice(1)}`
+      );
+    }
+  }, [currentUser, chainAccount]);
 
   const getContent = () => {
-    if (!currentUser) {
+    if (isLoading) {
+      return <LoadingPage />;
+    }
+
+    if (!renderedAssets.length) {
       return (
         <ErrorComponent
-          errorMessage="You must log in to view your collection."
-          buttonText="Connect Wallet"
-          buttonOnClick={connectWallet}
+          errorMessage={`Looks like ${
+            currentProfile ? `${currentProfile} doesn't` : `you don't`
+          } own any monsters yet.`}
         />
-      );
-    }
-
-    if (authError) {
-      return (
-        <ErrorComponent
-          errorMessage={authError}
-          buttonText="Connect Wallet"
-          buttonOnClick={connectWallet}
-        />
-      );
-    }
-
-    if (chainAccount !== currentUser.actor) {
-      router.push(`/my-nfts/${currentUser.actor}`);
-      return;
-    }
-
-    if (!assets.length) {
-      return (
-        <ErrorComponent errorMessage="Looks like you don't own any monsters yet." />
       );
     }
 
@@ -129,6 +122,7 @@ const Collection = ({ assets, error, chainAccount }: Props): JSX.Element => {
         />
       );
     }
+
     return (
       <>
         <Grid items={renderedAssets} type={GRID_TYPE.ASSET} />
@@ -142,10 +136,13 @@ const Collection = ({ assets, error, chainAccount }: Props): JSX.Element => {
   };
 
   return (
-    <PageLayout title="My NFTs">
-      <Title>Collection</Title>
-      {getContent()}
-    </PageLayout>
+    <>
+      <PageLayout title="My NFTs">
+        <Banner />
+        <Title>{currentProfile ? currentProfile : 'My'} NFTs</Title>
+        {getContent()}
+      </PageLayout>
+    </>
   );
 };
 
@@ -158,24 +155,11 @@ type GetServerSidePropsArgs = {
 export const getServerSideProps = async ({
   params: { chainAccount },
 }: GetServerSidePropsArgs): Promise<{ props: Props }> => {
-  try {
-    const assets = await getUserAssets(chainAccount);
-    return {
-      props: {
-        assets,
-        error: '',
-        chainAccount,
-      },
-    };
-  } catch (e) {
-    return {
-      props: {
-        assets: [],
-        error: e.message,
-        chainAccount,
-      },
-    };
-  }
+  return {
+    props: {
+      chainAccount,
+    },
+  };
 };
 
 export default Collection;
